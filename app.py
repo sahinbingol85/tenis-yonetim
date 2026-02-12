@@ -12,13 +12,15 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- AYARLAR ---
 st.set_page_config(page_title="AHAL TEKE Tenis Kulubü", layout="wide")
 
-GUNLER_TR = {
-    'Monday': 'Pazartesi', 'Tuesday': 'Salı', 'Wednesday': 'Çarşamba',
-    'Thursday': 'Perşembe', 'Friday': 'Cuma', 'Saturday': 'Cumartesi', 'Sunday': 'Pazar'
+# GÜN SÖZLÜĞÜ (Sayısal Eşleştirme - Kesin Çözüm)
+# Python'da 0=Pazartesi, 6=Pazar'dır. Bilgisayarın dili ne olursa olsun bu değişmez.
+GUNLER_MAP = {
+    0: 'Pazartesi', 1: 'Salı', 2: 'Çarşamba',
+    3: 'Perşembe', 4: 'Cuma', 5: 'Cumartesi', 6: 'Pazar'
 }
 
 
-# --- GOOGLE SHEETS BAĞLANTISI (GÜNCELLENDİ) ---
+# --- GOOGLE SHEETS BAĞLANTISI ---
 @st.cache_resource
 def init_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -78,6 +80,77 @@ def sifre_guncelle(kadi, yeni_sifre):
         wks.update_cell(cell.row, 2, yeni_sifre)
 
 
+# --- OTOMATİK KONTROL SİSTEMİ (Locale Sorununu Çözen v36.0) ---
+def sistem_kontrol_sessiz_gs():
+    sh = get_data()
+    wks_uye = sh.worksheet("uyelikler")
+
+    # ders_gecmisi sayfası yoksa oluştur (Hata almamak için)
+    try:
+        wks_gecmis = sh.worksheet("ders_gecmisi")
+    except:
+        wks_gecmis = sh.add_worksheet(title="ders_gecmisi", rows=1000, cols=3)
+        wks_gecmis.append_row(["uye_id", "tarih", "islem_tipi"])
+
+    uyeler = wks_uye.get_all_records()
+    gecmis = wks_gecmis.get_all_records()
+
+    # Geçmiş kayıtlarını hızlı arama için kümeye çevir
+    gecmis_set = set()
+    for g in gecmis:
+        gecmis_set.add(f"{g['uye_id']}_{g['tarih']}")
+
+    bugun = datetime.now().date()
+
+    for i, uye in enumerate(uyeler):
+        row_num = i + 2
+        # Veri güvenliği kontrolü
+        try:
+            kalan = int(uye['kalan_hak'])
+        except:
+            continue
+
+        if kalan <= 0: continue
+
+        try:
+            try:
+                baslangic = datetime.strptime(str(uye['baslangic_tarihi']), "%Y-%m-%d").date()
+            except:
+                baslangic = datetime.strptime(str(uye['baslangic_tarihi']), "%d.%m.%Y").date()
+        except:
+            continue
+
+        gunler = str(uye['gunler'])
+        if not gunler: continue
+        secilen_gunler = gunler.split(',')
+
+        gecen_gun = (bugun - baslangic).days
+        if gecen_gun < 0: continue  # Gelecek tarihli kayıt
+
+        dusulecek = 0
+
+        for j in range(gecen_gun + 1):
+            tarih = baslangic + timedelta(days=j)
+            if tarih > bugun: continue
+
+            # KRİTİK DÜZELTME: Gün ismini sayısal olarak al (0=Pazartesi)
+            gun_int = tarih.weekday()
+            gun_tr = GUNLER_MAP[gun_int]  # Sayıyı Türkçe güne çevir
+            t_str = tarih.strftime("%Y-%m-%d")
+
+            # Karşılaştırma yap
+            if gun_tr in secilen_gunler:
+                key = f"{uye['id']}_{t_str}"
+                if key not in gecmis_set:
+                    dusulecek += 1
+                    wks_gecmis.append_row([uye['id'], t_str, 'Otomatik'])
+                    gecmis_set.add(key)
+
+        if dusulecek > 0:
+            yeni_hak = max(0, kalan - dusulecek)
+            wks_uye.update_cell(row_num, 9, yeni_hak)
+
+
 def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, ucret, yontem, gunler_list, ders_tipi, ozel_hak_sayisi, veli_adi):
     sh = get_data()
     wks = sh.worksheet("uyelikler")
@@ -92,6 +165,12 @@ def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, ucret, yontem, gunler_list, ders_ti
         hak, hak, ucret, yontem, g_str, ders_tipi, veli_adi, "Aktif"
     ]
     wks.append_row(row)
+
+    # EKLEME: Kayıt yapılır yapılmaz bugünün kontrolünü yap
+    try:
+        sistem_kontrol_sessiz_gs()
+    except:
+        pass
 
 
 def uye_guncelle_gs(uye_id, ad, tel, paket_tipi, toplam_hak, kalan_hak):
@@ -206,7 +285,7 @@ if not st.session_state.giris_yapildi:
                     st.error("Hatalı bilgiler! (Lütfen Google Sheet 'yoneticiler' sayfasını kontrol edin)")
     st.stop()
 
-# --- SIDEBAR (GÜNCELLENDİ: FORM YAPISI İLE KUTUCUKLARI TEMİZLEME) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.write(f"👤 Yönetici: **{st.session_state.aktif_kullanici}**")
     st.info("🟢 Bağlantı: Google Sheets (Online)")
@@ -216,7 +295,6 @@ with st.sidebar:
 
         with tab_admin1:
             st.caption("Mevcut kullanıcının şifresini değiştir")
-            # clear_on_submit=True ile gönderilince kutular temizlenir
             with st.form("sifre_degis_form", clear_on_submit=True):
                 yeni_pass = st.text_input("Yeni Şifre", type="password")
                 submitted = st.form_submit_button("Şifreyi Güncelle")
@@ -224,13 +302,12 @@ with st.sidebar:
                     if yeni_pass:
                         sifre_guncelle(st.session_state.aktif_kullanici, yeni_pass)
                         st.success("Şifre değişti!")
-                        time.sleep(1)  # Rerun yapmaya gerek yok, mesaj görünsün yeter
+                        time.sleep(1)
                     else:
                         st.error("Şifre boş olamaz")
 
         with tab_admin2:
             st.caption("Yeni yönetici ekle")
-            # clear_on_submit=True ile gönderilince kutular temizlenir
             with st.form("yeni_yonetici_form", clear_on_submit=True):
                 new_admin_user = st.text_input("Kullanıcı Adı")
                 new_admin_pass = st.text_input("Şifre")
@@ -264,6 +341,13 @@ with col_logo:
         st.markdown("# 🎾")
 with col_title:
     st.markdown("## 🎾 AHAL TEKE Tenis Kulübü Yönetim Sistemi")
+
+# --- SİSTEMİ BAŞLATIRKEN KONTROL ET ---
+try:
+    sistem_kontrol_sessiz_gs()
+except Exception as e:
+    # İlk açılışta hata verirse kullanıcıyı korkutma, ama konsola bas
+    print(f"Kontrol Hatası: {e}")
 
 try:
     df = veri_getir_df()
