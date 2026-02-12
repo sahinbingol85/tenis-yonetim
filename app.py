@@ -4,6 +4,7 @@ import random
 import time
 import plotly.express as px
 import os
+import json
 from datetime import datetime, timedelta
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -17,11 +18,24 @@ GUNLER_TR = {
 }
 
 
-# --- GOOGLE SHEETS BAĞLANTISI ---
+# --- GOOGLE SHEETS BAĞLANTISI (GÜNCELLENDİ) ---
 @st.cache_resource
 def init_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+
+    # 1. YÖNTEM: Render veya Bulut (Environment Variable)
+    if "GOOGLE_JSON" in os.environ:
+        creds_dict = json.loads(os.environ["GOOGLE_JSON"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+
+    # 2. YÖNTEM: Lokal Bilgisayar (Streamlit Secrets)
+    elif "gcp_service_account" in st.secrets:
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+
+    else:
+        st.error("Hata: Google şifreleri bulunamadı! (Ne 'GOOGLE_JSON' ne de 'secrets.toml' var)")
+        st.stop()
+
     client = gspread.authorize(creds)
     return client
 
