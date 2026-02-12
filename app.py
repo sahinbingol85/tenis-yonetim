@@ -460,68 +460,78 @@ with tabs[0]:
             st.success("Temiz")
 
 # --- TAB 2: YENİ ÜYE ---
+# --- TAB 2: YENİ ÜYE (GÜNCELLENDİ: FORM YAPISI) ---
 with tabs[1]:
     st.header("📝 Yeni Üye Kaydı")
-    if st.session_state.get('form_hata'): st.error(st.session_state.form_hata); st.session_state.form_hata = None
-    if st.session_state.get('form_basari'): st.balloons(); st.success(
-        "Kayıt Başarıyla Oluşturuldu!"); st.session_state.form_basari = False
 
-    c1, c2 = st.columns(2)
-    c1.text_input("Ad Soyad", key="yeni_ad")
-    c2.text_input("Telefon (11 Hane)", placeholder="05321234567", max_chars=11, key="yeni_tel")
+    # Başarı/Hata mesajlarını formun dışında gösterelim ki form temizlendiğinde gitmesin
+    if st.session_state.get('form_hata'):
+        st.error(st.session_state.form_hata)
+        st.session_state.form_hata = None
+    if st.session_state.get('form_basari'):
+        st.balloons()
+        st.success("Kayıt Başarıyla Oluşturuldu!")
+        st.session_state.form_basari = False
 
-    st.divider()
-    c3, c4 = st.columns(2)
-    dt = c3.date_input("Doğum Tarihi",
-                       value=datetime(2000, 1, 1),
-                       min_value=datetime(1900, 1, 1),
-                       max_value=datetime.now(),
-                       format="DD/MM/YYYY",
-                       key="yeni_dt")
-    c4.selectbox("Cinsiyet", ["Erkek", "Kadın"], key="yeni_cins")
+    # BURASI KRİTİK: Her şeyi bir formun içine alıyoruz
+    with st.form("yeni_uye_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        yeni_ad = c1.text_input("Ad Soyad")
+        yeni_tel = c2.text_input("Telefon (11 Hane)", placeholder="05321234567", max_chars=11)
 
-    hesaplanan_yas = yas_hesapla(dt)
-    if hesaplanan_yas < 16:
-        st.warning(f"👶 Üye {hesaplanan_yas} yaşında (16 yaş altı - Çocuk Kategorisi)")
-        st.text_input("👨‍👩‍👦 Veli Adı Soyadı (Zorunlu)", key="yeni_veli")
-    else:
-        st.success(f"🧑 Üye {hesaplanan_yas} yaşında (Yetişkin Kategorisi)")
+        st.divider()
+        c3, c4 = st.columns(2)
+        yeni_dt = c3.date_input("Doğum Tarihi",
+                                value=datetime(2000, 1, 1),
+                                min_value=datetime(1900, 1, 1),
+                                max_value=datetime.now(),
+                                format="DD/MM/YYYY")
+        yeni_cins = c4.selectbox("Cinsiyet", ["Erkek", "Kadın"])
 
-    st.divider()
-    c5, c6, c7 = st.columns(3)
-    tip = c5.selectbox("Paket Tipi", ["Grup Dersi", "Özel Ders"], key="yeni_tip")
-    if tip == "Özel Ders":
-        c6.number_input("👉 Özel Ders Sayısı:", min_value=1, value=10, key="yeni_hak")
-    else:
-        c6.info("ℹ️ Standart: 8 Ders")
-    c7.number_input("Ücret (TL)", value=3000, key="yeni_ucret")
+        # Yaş hesabı form içinde dinamik olamaz, ama sorun değil. Kaydederken kontrol ederiz.
+        st.info("ℹ️ 16 yaşından küçükler için Veli Adı zorunludur.")
+        yeni_veli = st.text_input("👨‍👩‍👦 Veli Adı Soyadı (Sadece 16 yaş altı için)")
 
-    st.divider()
-    c8, c9, c10 = st.columns(3)
-    c8.date_input("Başlangıç", datetime.now(), format="DD/MM/YYYY", key="yeni_bas")
-    c9.selectbox("Ödeme", ["Nakit", "IBAN", "Kredi Kartı"], key="yeni_odeme")
-    c10.multiselect("Günler", ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
-                    placeholder="Gün seçiniz!", key="yeni_gunler")
+        st.divider()
+        c5, c6, c7 = st.columns(3)
+        yeni_tip = c5.selectbox("Paket Tipi", ["Grup Dersi", "Özel Ders"])
+        yeni_hak = c6.number_input("👉 Özel Ders Sayısı (Grup ise 8)", min_value=1, value=10)
+        yeni_ucret = c7.number_input("Ücret (TL)", value=3000)
 
-    if st.button("✅ Üyeyi Kaydet", type="primary"):
-        ad = st.session_state.yeni_ad
-        tel = st.session_state.yeni_tel
-        cins = st.session_state.yeni_cins
-        veli = st.session_state.get("yeni_veli", "")
-        gunler = st.session_state.yeni_gunler
+        st.divider()
+        c8, c9, c10 = st.columns(3)
+        yeni_bas = c8.date_input("Başlangıç", datetime.now(), format="DD/MM/YYYY")
+        yeni_odeme = c9.selectbox("Ödeme", ["Nakit", "IBAN", "Kredi Kartı"])
 
-        if not ad:
-            st.error("İsim giriniz.")
-        elif yas_hesapla(dt) < 16 and not veli:
-            st.error("16 yaş altı için Veli Adı zorunludur.")
-        elif not gunler:
-            st.error("Gün seçiniz.")
-        else:
-            yeni_uye_ekle_gs(ad, tel, cins, dt, st.session_state.yeni_bas, st.session_state.yeni_ucret,
-                             st.session_state.yeni_odeme, gunler, tip, st.session_state.get('yeni_hak', 8), veli)
-            st.session_state.form_basari = True
-            st.cache_resource.clear()
-            st.rerun()
+        # İşte sorunu çözen yer! Artık burada seçim yapınca sayfa yenilenmeyecek.
+        yeni_gunler = c10.multiselect("Günler",
+                                      ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
+                                      placeholder="Gün seçiniz!")
+
+        # Buton artık formun submit butonu oldu
+        submitted = st.form_submit_button("✅ Üyeyi Kaydet", type="primary")
+
+        if submitted:
+            # Form gönderildiğinde yapılacak işlemler
+            hata_var = False
+            hesaplanan_yas = yas_hesapla(yeni_dt)
+
+            if not yeni_ad:
+                st.session_state.form_hata = "İsim giriniz."
+                hata_var = True
+            elif hesaplanan_yas < 16 and not yeni_veli:
+                st.session_state.form_hata = "16 yaş altı için Veli Adı zorunludur."
+                hata_var = True
+            elif not yeni_gunler:
+                st.session_state.form_hata = "Gün seçiniz."
+                hata_var = True
+
+            if not hata_var:
+                yeni_uye_ekle_gs(yeni_ad, yeni_tel, yeni_cins, yeni_dt, yeni_bas, yeni_ucret,
+                                 yeni_odeme, yeni_gunler, yeni_tip, yeni_hak, yeni_veli)
+                st.session_state.form_basari = True
+                st.cache_resource.clear()
+                st.rerun()
 
 # --- TAB 3: LİSTE ---
 with tabs[2]:
