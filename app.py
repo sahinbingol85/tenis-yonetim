@@ -12,8 +12,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- AYARLAR ---
 st.set_page_config(page_title="AHAL TEKE Tenis Kulubü", layout="wide")
 
-# GÜN SÖZLÜĞÜ (Sayısal Eşleştirme - Kesin Çözüm)
-# Python'da 0=Pazartesi, 6=Pazar'dır. Bilgisayarın dili ne olursa olsun bu değişmez.
+# GÜN SÖZLÜĞÜ
 GUNLER_MAP = {
     0: 'Pazartesi', 1: 'Salı', 2: 'Çarşamba',
     3: 'Perşembe', 4: 'Cuma', 5: 'Cumartesi', 6: 'Pazar'
@@ -25,17 +24,13 @@ GUNLER_MAP = {
 def init_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 
-    # 1. YÖNTEM: Render veya Bulut (Environment Variable)
     if "GOOGLE_JSON" in os.environ:
         creds_dict = json.loads(os.environ["GOOGLE_JSON"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-
-    # 2. YÖNTEM: Lokal Bilgisayar (Streamlit Secrets)
     elif "gcp_service_account" in st.secrets:
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-
     else:
-        st.error("Hata: Google şifreleri bulunamadı! (Ne 'GOOGLE_JSON' ne de 'secrets.toml' var)")
+        st.error("Hata: Google şifreleri bulunamadı!")
         st.stop()
 
     client = gspread.authorize(creds)
@@ -80,12 +75,11 @@ def sifre_guncelle(kadi, yeni_sifre):
         wks.update_cell(cell.row, 2, yeni_sifre)
 
 
-# --- OTOMATİK KONTROL SİSTEMİ (Locale Sorununu Çözen v36.0) ---
+# --- OTOMATİK KONTROL SİSTEMİ ---
 def sistem_kontrol_sessiz_gs():
     sh = get_data()
     wks_uye = sh.worksheet("uyelikler")
 
-    # ders_gecmisi sayfası yoksa oluştur (Hata almamak için)
     try:
         wks_gecmis = sh.worksheet("ders_gecmisi")
     except:
@@ -95,7 +89,6 @@ def sistem_kontrol_sessiz_gs():
     uyeler = wks_uye.get_all_records()
     gecmis = wks_gecmis.get_all_records()
 
-    # Geçmiş kayıtlarını hızlı arama için kümeye çevir
     gecmis_set = set()
     for g in gecmis:
         gecmis_set.add(f"{g['uye_id']}_{g['tarih']}")
@@ -104,7 +97,6 @@ def sistem_kontrol_sessiz_gs():
 
     for i, uye in enumerate(uyeler):
         row_num = i + 2
-        # Veri güvenliği kontrolü
         try:
             kalan = int(uye['kalan_hak'])
         except:
@@ -125,7 +117,7 @@ def sistem_kontrol_sessiz_gs():
         secilen_gunler = gunler.split(',')
 
         gecen_gun = (bugun - baslangic).days
-        if gecen_gun < 0: continue  # Gelecek tarihli kayıt
+        if gecen_gun < 0: continue
 
         dusulecek = 0
 
@@ -133,12 +125,10 @@ def sistem_kontrol_sessiz_gs():
             tarih = baslangic + timedelta(days=j)
             if tarih > bugun: continue
 
-            # KRİTİK DÜZELTME: Gün ismini sayısal olarak al (0=Pazartesi)
             gun_int = tarih.weekday()
-            gun_tr = GUNLER_MAP[gun_int]  # Sayıyı Türkçe güne çevir
+            gun_tr = GUNLER_MAP[gun_int]
             t_str = tarih.strftime("%Y-%m-%d")
 
-            # Karşılaştırma yap
             if gun_tr in secilen_gunler:
                 key = f"{uye['id']}_{t_str}"
                 if key not in gecmis_set:
@@ -151,38 +141,39 @@ def sistem_kontrol_sessiz_gs():
             wks_uye.update_cell(row_num, 9, yeni_hak)
 
 
-def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, ucret, yontem, gunler_list, ders_tipi, ozel_hak_sayisi, veli_adi):
+def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, bitis, ucret, yontem, gunler_list, ders_tipi, hak_sayisi, veli_adi,
+                     kategori):
     sh = get_data()
     wks = sh.worksheet("uyelikler")
     yeni_id = int(time.time())
-    bitis = datetime.strptime(str(bas), "%Y-%m-%d") + timedelta(days=30)
     g_str = ",".join(gunler_list)
-    hak = 8
-    if ders_tipi == "Özel Ders": hak = int(ozel_hak_sayisi)
+    hak = int(hak_sayisi)
 
     row = [
-        yeni_id, ad, tel, cins, str(dt), str(bas), str(bitis.date()),
-        hak, hak, ucret, yontem, g_str, ders_tipi, veli_adi, "Aktif"
+        yeni_id, ad, tel, cins, str(dt), str(bas), str(bitis),
+        hak, hak, ucret, yontem, g_str, ders_tipi, veli_adi, "Aktif", kategori
     ]
     wks.append_row(row)
 
-    # EKLEME: Kayıt yapılır yapılmaz bugünün kontrolünü yap
     try:
         sistem_kontrol_sessiz_gs()
     except:
         pass
 
 
-def uye_guncelle_gs(uye_id, ad, tel, paket_tipi, toplam_hak, kalan_hak):
+def uye_guncelle_gs(uye_id, ad, tel, dt_str, paket_tipi, toplam_hak, kalan_hak, veli_adi, kategori):
     sh = get_data()
     wks = sh.worksheet("uyelikler")
     cell = wks.find(str(uye_id))
     if cell:
         wks.update_cell(cell.row, 2, ad)
         wks.update_cell(cell.row, 3, tel)
+        wks.update_cell(cell.row, 5, dt_str)
         wks.update_cell(cell.row, 8, toplam_hak)
         wks.update_cell(cell.row, 9, kalan_hak)
         wks.update_cell(cell.row, 13, paket_tipi)
+        wks.update_cell(cell.row, 14, veli_adi)
+        wks.update_cell(cell.row, 16, kategori)
 
 
 def uye_sil_gs(uye_id):
@@ -342,11 +333,9 @@ with col_logo:
 with col_title:
     st.markdown("## 🎾 AHAL TEKE Tenis Kulübü Yönetim Sistemi")
 
-# --- SİSTEMİ BAŞLATIRKEN KONTROL ET ---
 try:
     sistem_kontrol_sessiz_gs()
 except Exception as e:
-    # İlk açılışta hata verirse kullanıcıyı korkutma, ama konsola bas
     print(f"Kontrol Hatası: {e}")
 
 try:
@@ -357,12 +346,26 @@ except:
 
 bugun = pd.to_datetime(datetime.now().date())
 
+
+def kategori_belirle(row):
+    kat = str(row.get('kategori', '')).strip()
+    if kat in ['Çocuk', 'Yetişkin']:
+        return kat
+
+    if str(row.get('veli_adi', '')).strip() not in ['', 'nan', 'None']:
+        return 'Çocuk'
+    return 'Yetişkin'
+
+
 # --- GLOBAL VERİ İŞLEME ---
 if not df.empty:
     df['bitis_tarihi'] = pd.to_datetime(df['bitis_tarihi'], errors='coerce')
     df['baslangic_tarihi'] = pd.to_datetime(df['baslangic_tarihi'], errors='coerce')
     df['yas'] = df['dogum_tarihi'].apply(yas_hesapla)
-    df['yas_grubu'] = df['yas'].apply(lambda x: 'Çocuk (Junior)' if x < 16 else 'Yetişkin')
+
+    df['kategori_hesaplanan'] = df.apply(kategori_belirle, axis=1)
+    df['yas_grubu'] = df['kategori_hesaplanan'].apply(lambda x: 'Çocuk (Junior)' if x == 'Çocuk' else 'Yetişkin')
+
     df['aktif_mi'] = (df['bitis_tarihi'] >= bugun) & (df['kalan_hak'] > 0)
 
     tum_bitenler = df[~df['aktif_mi']]
@@ -407,22 +410,14 @@ with tabs[0]:
                     c1.warning(" & ".join(msg))
                     c1.write(f"Kalan: **{row['kalan_hak']}**")
 
-                    if row['ders_tipi'] == "Özel Ders":
-                        y_adet = c2.number_input("Adet", value=int(row['toplam_hak']), key=f"yak_n_{row['id']}")
-                        y_tarih = c2.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY",
-                                                key=f"yak_d_{row['id']}")
-                        if c2.button("➕ Uzat", key=f"yak_b_{row['id']}"):
-                            uyelik_yenile_gs(row['id'], y_adet, y_tarih)
-                            st.success("Yenilendi");
-                            st.cache_resource.clear();
-                            st.rerun()
-                    else:
-                        c2.write("Grup (8)")
-                        if c2.button("➕ 1 Ay Uzat", key=f"yak_b_{row['id']}"):
-                            uyelik_yenile_gs(row['id'], 8)
-                            st.success("Yenilendi");
-                            st.cache_resource.clear();
-                            st.rerun()
+                    y_adet = c2.number_input("Adet", value=int(row['toplam_hak']), key=f"yak_n_{row['id']}")
+                    y_tarih = c2.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY",
+                                            key=f"yak_d_{row['id']}")
+                    if c2.button("➕ Uzat", key=f"yak_b_{row['id']}"):
+                        uyelik_yenile_gs(row['id'], y_adet, y_tarih)
+                        st.success("Yenilendi!");
+                        st.cache_resource.clear();
+                        st.rerun()
         else:
             st.success("Riskli üye yok.")
 
@@ -440,31 +435,21 @@ with tabs[0]:
                     c1.caption(f"📅 {tarih_str} - {bitis_str}")
                     c1.error("HAK BİTTİ" if row['kalan_hak'] <= 0 else "SÜRE BİTTİ")
 
-                    if row['ders_tipi'] == "Özel Ders":
-                        y_adet = c2.number_input("Adet", value=int(row['toplam_hak']), key=f"bit_n_{row['id']}")
-                        y_tarih = c2.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY",
-                                                key=f"bit_d_{row['id']}")
-                        if c2.button("♻️ Yenile", key=f"bit_b_{row['id']}"):
-                            uyelik_yenile_gs(row['id'], y_adet, y_tarih)
-                            st.success("Yenilendi");
-                            st.cache_resource.clear();
-                            st.rerun()
-                    else:
-                        c2.write("Grup (8)")
-                        if c2.button("♻️ Yenile", key=f"bit_b_{row['id']}"):
-                            uyelik_yenile_gs(row['id'], 8)
-                            st.success("Yenilendi");
-                            st.cache_resource.clear();
-                            st.rerun()
+                    y_adet = c2.number_input("Adet", value=int(row['toplam_hak']), key=f"bit_n_{row['id']}")
+                    y_tarih = c2.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY",
+                                            key=f"bit_d_{row['id']}")
+                    if c2.button("♻️ Yenile / Uzat", key=f"bit_b_{row['id']}"):
+                        uyelik_yenile_gs(row['id'], y_adet, y_tarih)
+                        st.success("Yenilendi!");
+                        st.cache_resource.clear();
+                        st.rerun()
         else:
             st.success("Temiz")
 
-# --- TAB 2: YENİ ÜYE ---
-# --- TAB 2: YENİ ÜYE (GÜNCELLENDİ: FORM YAPISI) ---
+# --- TAB 2: YENİ ÜYE (GÜNCELLENDİ: Veli Adı Her Zaman Görünür) ---
 with tabs[1]:
     st.header("📝 Yeni Üye Kaydı")
 
-    # Başarı/Hata mesajlarını formun dışında gösterelim ki form temizlendiğinde gitmesin
     if st.session_state.get('form_hata'):
         st.error(st.session_state.form_hata)
         st.session_state.form_hata = None
@@ -473,62 +458,56 @@ with tabs[1]:
         st.success("Kayıt Başarıyla Oluşturuldu!")
         st.session_state.form_basari = False
 
-    # BURASI KRİTİK: Her şeyi bir formun içine alıyoruz
     with st.form("yeni_uye_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         yeni_ad = c1.text_input("Ad Soyad")
         yeni_tel = c2.text_input("Telefon (11 Hane)", placeholder="05321234567", max_chars=11)
 
         st.divider()
-        c3, c4 = st.columns(2)
+        c3, c4, c_kat = st.columns(3)
         yeni_dt = c3.date_input("Doğum Tarihi",
                                 value=datetime(2000, 1, 1),
                                 min_value=datetime(1900, 1, 1),
                                 max_value=datetime.now(),
                                 format="DD/MM/YYYY")
         yeni_cins = c4.selectbox("Cinsiyet", ["Erkek", "Kadın"])
+        yeni_kategori = c_kat.selectbox("Kategori (Yaş Grubu)", ["Yetişkin", "Çocuk"])
 
-        # Yaş hesabı form içinde dinamik olamaz, ama sorun değil. Kaydederken kontrol ederiz.
-        st.info("ℹ️ 16 yaşından küçükler için Veli Adı zorunludur.")
-        yeni_veli = st.text_input("👨‍👩‍👦 Veli Adı Soyadı (Sadece 16 yaş altı için)")
+        # YENİ EKLENEN KISIM: Veli adı kutusu kategoriden bağımsız her zaman görünür.
+        st.info("ℹ️ Lütfen çocuk üyeler için Veli Adını girmeyi unutmayınız. Yetişkinler boş bırakabilir.")
+        yeni_veli = st.text_input("👨‍👩‍👦 Veli Adı Soyadı")
 
         st.divider()
         c5, c6, c7 = st.columns(3)
         yeni_tip = c5.selectbox("Paket Tipi", ["Grup Dersi", "Özel Ders"])
-        yeni_hak = c6.number_input("👉 Özel Ders Sayısı (Grup ise 8)", min_value=1, value=10)
+        yeni_hak = c6.number_input("Ders Sayısı", min_value=1, value=8)
         yeni_ucret = c7.number_input("Ücret (TL)", value=3000)
 
         st.divider()
-        c8, c9, c10 = st.columns(3)
-        yeni_bas = c8.date_input("Başlangıç", datetime.now(), format="DD/MM/YYYY")
+        c8, c_bitis, c9 = st.columns(3)
+        yeni_bas = c8.date_input("Başlangıç Tarihi", datetime.now(), format="DD/MM/YYYY")
+        yeni_bitis = c_bitis.date_input("Bitiş Tarihi", datetime.now() + timedelta(days=30), format="DD/MM/YYYY")
         yeni_odeme = c9.selectbox("Ödeme", ["Nakit", "IBAN", "Kredi Kartı"])
 
-        # İşte sorunu çözen yer! Artık burada seçim yapınca sayfa yenilenmeyecek.
-        yeni_gunler = c10.multiselect("Günler",
-                                      ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
-                                      placeholder="Gün seçiniz!")
+        yeni_gunler = st.multiselect("Günler",
+                                     ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
+                                     placeholder="Gün seçiniz!")
 
-        # Buton artık formun submit butonu oldu
         submitted = st.form_submit_button("✅ Üyeyi Kaydet", type="primary")
 
         if submitted:
-            # Form gönderildiğinde yapılacak işlemler
             hata_var = False
-            hesaplanan_yas = yas_hesapla(yeni_dt)
 
             if not yeni_ad:
                 st.session_state.form_hata = "İsim giriniz."
-                hata_var = True
-            elif hesaplanan_yas < 16 and not yeni_veli:
-                st.session_state.form_hata = "16 yaş altı için Veli Adı zorunludur."
                 hata_var = True
             elif not yeni_gunler:
                 st.session_state.form_hata = "Gün seçiniz."
                 hata_var = True
 
             if not hata_var:
-                yeni_uye_ekle_gs(yeni_ad, yeni_tel, yeni_cins, yeni_dt, yeni_bas, yeni_ucret,
-                                 yeni_odeme, yeni_gunler, yeni_tip, yeni_hak, yeni_veli)
+                yeni_uye_ekle_gs(yeni_ad, yeni_tel, yeni_cins, yeni_dt, yeni_bas, yeni_bitis, yeni_ucret,
+                                 yeni_odeme, yeni_gunler, yeni_tip, yeni_hak, yeni_veli, yeni_kategori)
                 st.session_state.form_basari = True
                 st.cache_resource.clear()
                 st.rerun()
@@ -536,10 +515,11 @@ with tabs[1]:
 # --- TAB 3: LİSTE ---
 with tabs[2]:
     if not df.empty:
-        fc1, fc2, fc3 = st.columns([3, 1, 1])
+        fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
         arama = fc1.text_input("🔍 Kişi Ara", placeholder="Ali...")
         f_tip = fc2.multiselect("Ders Tipi", df['ders_tipi'].unique(), placeholder="Seçiniz")
         f_durum = fc3.radio("Durum", ["Aktif", "Pasif", "Hepsi"], horizontal=True, index=0)
+        f_kategori = fc4.radio("Kategori", ["Hepsi", "Yetişkin", "Çocuk"], horizontal=True, index=0)
 
         view_df = df.copy()
         if 'bitis_tarihi' in view_df.columns:
@@ -549,15 +529,19 @@ with tabs[2]:
         if f_tip: view_df = view_df[view_df['ders_tipi'].isin(f_tip)]
         if f_durum == "Aktif": view_df = view_df[view_df['aktif_mi']]
         if f_durum == "Pasif": view_df = view_df[~view_df['aktif_mi']]
+        if f_kategori == "Yetişkin": view_df = view_df[view_df['yas_grubu'] == 'Yetişkin']
+        if f_kategori == "Çocuk": view_df = view_df[view_df['yas_grubu'] == 'Çocuk (Junior)']
 
         st.write(f"**Toplam: {len(view_df)} Kişi**")
 
         for i, row in view_df.iterrows():
             with st.container(border=True):
                 c1, c2, c3, c4 = st.columns([3, 3, 2, 2])
-                ikon = "🧒" if row['yas'] < 16 else ("👨" if row['cinsiyet'] == "Erkek" else "👩")
+
+                ikon = "🧒" if row['yas_grubu'] == 'Çocuk (Junior)' else ("👨" if row['cinsiyet'] == "Erkek" else "👩")
                 c1.markdown(f"### {ikon} {row['ad_soyad']}")
-                if row['yas'] < 16: c1.caption(f"Veli: {row['veli_adi']}")
+                if row['yas_grubu'] == 'Çocuk (Junior)' and str(row.get('veli_adi', '')).strip():
+                    c1.caption(f"Veli: {row['veli_adi']}")
 
                 tarih_str = row['baslangic_tarihi'].strftime('%d.%m.%Y') if pd.notnull(row['baslangic_tarihi']) else "-"
                 bitis_str = row['bitis_tarihi'].strftime('%d.%m.%Y') if pd.notnull(row['bitis_tarihi']) else "-"
@@ -590,14 +574,36 @@ with tabs[2]:
                     with tab_duzen:
                         with st.form(key=f"edit_form_{row['id']}"):
                             d_ad = st.text_input("Ad Soyad", value=row['ad_soyad'])
-                            d_tel = st.text_input("Telefon", value=row['telefon'])
+
+                            c_edit1, c_edit2 = st.columns(2)
+                            d_tel = c_edit1.text_input("Telefon", value=row['telefon'])
+
+                            try:
+                                mevcut_dt = datetime.strptime(str(row['dogum_tarihi']), "%Y-%m-%d").date()
+                            except:
+                                try:
+                                    mevcut_dt = datetime.strptime(str(row['dogum_tarihi']), "%d.%m.%Y").date()
+                                except:
+                                    mevcut_dt = datetime(2000, 1, 1).date()
+
+                            d_dt = c_edit2.date_input("Doğum Tarihi", value=mevcut_dt, format="DD/MM/YYYY")
+
+                            c_kat_edit, c_veli_edit = st.columns(2)
+                            mevcut_kat = "Çocuk" if row['yas_grubu'] == 'Çocuk (Junior)' else "Yetişkin"
+                            d_kategori = c_kat_edit.selectbox("Kategori", ["Yetişkin", "Çocuk"],
+                                                              index=1 if mevcut_kat == "Çocuk" else 0)
+                            d_veli = c_veli_edit.text_input("Veli Adı Soyadı",
+                                                            value=str(row.get('veli_adi', '')).replace('nan', ''))
+
                             d_tip = st.selectbox("Paket", ["Grup Dersi", "Özel Ders"],
                                                  index=0 if row['ders_tipi'] == "Grup Dersi" else 1)
                             c_d1, c_d2 = st.columns(2)
                             d_top = c_d1.number_input("Toplam Hak", value=int(row['toplam_hak']))
                             d_kal = c_d2.number_input("Kalan Hak", value=int(row['kalan_hak']))
+
                             if st.form_submit_button("💾 Değişiklikleri Kaydet"):
-                                uye_guncelle_gs(row['id'], d_ad, d_tel, d_tip, d_top, d_kal)
+                                uye_guncelle_gs(row['id'], d_ad, d_tel, str(d_dt), d_tip, d_top, d_kal, d_veli,
+                                                d_kategori)
                                 st.success("Güncellendi!");
                                 time.sleep(1);
                                 st.cache_resource.clear();
@@ -613,23 +619,14 @@ with tabs[2]:
 
                 with st.expander("♻️ Paket / Süre Uzatma"):
                     rc1, rc2 = st.columns(2)
-                    if row['ders_tipi'] == "Özel Ders":
-                        y_adet = rc1.number_input("Ders Sayısı", value=int(row['toplam_hak']),
-                                                  key=f"list_n_{row['id']}")
-                        y_tarih = rc1.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY",
-                                                 key=f"list_d_{row['id']}")
-                        if rc2.button("Yenile/Uzat", key=f"list_b_{row['id']}"):
-                            uyelik_yenile_gs(row['id'], y_adet, y_tarih)
-                            st.success("İşlem Tamam");
-                            st.cache_resource.clear();
-                            st.rerun()
-                    else:
-                        rc1.info("Grup Dersi (8 Ders / 30 Gün)")
-                        if rc2.button("1 Ay Uzat", key=f"list_b_{row['id']}"):
-                            uyelik_yenile_gs(row['id'], 8)
-                            st.success("İşlem Tamam");
-                            st.cache_resource.clear();
-                            st.rerun()
+                    y_adet = rc1.number_input("Ders Sayısı", value=int(row['toplam_hak']), key=f"list_n_{row['id']}")
+                    y_tarih = rc1.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY",
+                                             key=f"list_d_{row['id']}")
+                    if rc2.button("Yenile / Uzat", key=f"list_b_{row['id']}"):
+                        uyelik_yenile_gs(row['id'], y_adet, y_tarih)
+                        st.success("İşlem Tamam!");
+                        st.cache_resource.clear();
+                        st.rerun()
     else:
         st.info("Kayıt yok veya veritabanı boş.")
 
@@ -654,7 +651,8 @@ with tabs[3]:
         if rapor_turu == "Tüm Üyeler (Detaylı)":
             gosterilecek_tablo = temp_df[['ad_soyad', 'telefon', 'cinsiyet', 'yas', 'ders_tipi', 'kalan_hak', 'durum']]
         elif rapor_turu == "Çocuklar ve Velileri":
-            gosterilecek_tablo = temp_df[temp_df['yas'] < 16][['ad_soyad', 'yas', 'veli_adi', 'telefon', 'kalan_hak']]
+            gosterilecek_tablo = temp_df[temp_df['yas_grubu'] == 'Çocuk (Junior)'][
+                ['ad_soyad', 'veli_adi', 'telefon', 'kalan_hak']]
         elif rapor_turu == "Grup Dersi Alanlar":
             gosterilecek_tablo = temp_df[temp_df['ders_tipi'] == "Grup Dersi"][
                 ['ad_soyad', 'telefon', 'gunler', 'kalan_hak']]
@@ -692,21 +690,21 @@ with tabs[4]:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Cinsiyet")
-            cinsiyet_count = df['cinsiyet'].value_counts().reset_index();
+            cinsiyet_count = df['cinsiyet'].value_counts().reset_index()
             cinsiyet_count.columns = ['Cinsiyet', 'Adet']
             fig1 = px.pie(cinsiyet_count, values='Adet', names='Cinsiyet', color='Cinsiyet',
                           color_discrete_map={'Kadın': 'pink', 'Erkek': 'blue'})
             st.plotly_chart(fig1, use_container_width=True)
         with col2:
             st.subheader("Yetişkin / Çocuk")
-            yas_count = df['yas_grubu'].value_counts().reset_index();
+            yas_count = df['yas_grubu'].value_counts().reset_index()
             yas_count.columns = ['Grup', 'Adet']
             fig2 = px.pie(yas_count, values='Adet', names='Grup', color_discrete_sequence=px.colors.sequential.RdBu)
             st.plotly_chart(fig2, use_container_width=True)
 
         st.divider()
         st.subheader("Ders Tiplerine Göre")
-        ders_count = df['ders_tipi'].value_counts().reset_index();
+        ders_count = df['ders_tipi'].value_counts().reset_index()
         ders_count.columns = ['Ders Tipi', 'Adet']
         fig3 = px.pie(ders_count, values='Adet', names='Ders Tipi', hole=0.4)
         st.plotly_chart(fig3, use_container_width=True)
