@@ -18,7 +18,6 @@ GUNLER_MAP = {
     3: 'Perşembe', 4: 'Cuma', 5: 'Cumartesi', 6: 'Pazar'
 }
 
-
 # --- GOOGLE SHEETS BAĞLANTISI ---
 @st.cache_resource
 def init_connection():
@@ -36,12 +35,10 @@ def init_connection():
     client = gspread.authorize(creds)
     return client
 
-
 def get_data():
     client = init_connection()
     sh = client.open("tenis_db")
     return sh
-
 
 # --- YARDIMCI FONKSİYONLAR ---
 def veri_getir_df():
@@ -51,7 +48,6 @@ def veri_getir_df():
     if not data: return pd.DataFrame()
     return pd.DataFrame(data)
 
-
 def yoneticileri_getir():
     sh = get_data()
     try:
@@ -60,12 +56,10 @@ def yoneticileri_getir():
     except:
         return []
 
-
 def yeni_yonetici_ekle(kadi, sifre):
     sh = get_data()
     wks = sh.worksheet("yoneticiler")
     wks.append_row([kadi, sifre])
-
 
 def sifre_guncelle(kadi, yeni_sifre):
     sh = get_data()
@@ -74,8 +68,7 @@ def sifre_guncelle(kadi, yeni_sifre):
     if cell:
         wks.update_cell(cell.row, 2, yeni_sifre)
 
-
-# --- OTOMATİK KONTROL SİSTEMİ ---
+# --- OTOMATİK KONTROL SİSTEMİ (GÜNCELLENDİ: Tatil Günleri Eklendi) ---
 def sistem_kontrol_sessiz_gs():
     sh = get_data()
     wks_uye = sh.worksheet("uyelikler")
@@ -85,6 +78,16 @@ def sistem_kontrol_sessiz_gs():
     except:
         wks_gecmis = sh.add_worksheet(title="ders_gecmisi", rows=1000, cols=3)
         wks_gecmis.append_row(["uye_id", "tarih", "islem_tipi"])
+
+    # YENİ: Tatiller sayfasını bul veya oluştur
+    try:
+        wks_tatil = sh.worksheet("tatiller")
+    except:
+        wks_tatil = sh.add_worksheet(title="tatiller", rows=100, cols=1)
+        wks_tatil.append_row(["tarih"])
+        
+    tatil_kayitlari = wks_tatil.get_all_records()
+    tatiller = set(str(r['tarih']) for r in tatil_kayitlari if r.get('tarih'))
 
     uyeler = wks_uye.get_all_records()
     gecmis = wks_gecmis.get_all_records()
@@ -117,7 +120,7 @@ def sistem_kontrol_sessiz_gs():
         secilen_gunler = gunler.split(',')
 
         gecen_gun = (bugun - baslangic).days
-        if gecen_gun < 0: continue
+        if gecen_gun < 0: continue  
 
         dusulecek = 0
 
@@ -126,8 +129,12 @@ def sistem_kontrol_sessiz_gs():
             if tarih > bugun: continue
 
             gun_int = tarih.weekday()
-            gun_tr = GUNLER_MAP[gun_int]
+            gun_tr = GUNLER_MAP[gun_int] 
             t_str = tarih.strftime("%Y-%m-%d")
+
+            # YENİ EKLENEN KISIM: Eğer bu tarih tatiller listesindeyse bugünü atla (düşme yapma)
+            if t_str in tatiller:
+                continue
 
             if gun_tr in secilen_gunler:
                 key = f"{uye['id']}_{t_str}"
@@ -140,9 +147,7 @@ def sistem_kontrol_sessiz_gs():
             yeni_hak = max(0, kalan - dusulecek)
             wks_uye.update_cell(row_num, 9, yeni_hak)
 
-
-def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, bitis, ucret, yontem, gunler_list, ders_tipi, hak_sayisi, veli_adi,
-                     kategori):
+def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, bitis, ucret, yontem, gunler_list, ders_tipi, hak_sayisi, veli_adi, kategori):
     sh = get_data()
     wks = sh.worksheet("uyelikler")
     yeni_id = int(time.time())
@@ -160,7 +165,6 @@ def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, bitis, ucret, yontem, gunler_list, 
     except:
         pass
 
-
 def uye_guncelle_gs(uye_id, ad, tel, dt_str, paket_tipi, toplam_hak, kalan_hak, veli_adi, kategori):
     sh = get_data()
     wks = sh.worksheet("uyelikler")
@@ -168,13 +172,12 @@ def uye_guncelle_gs(uye_id, ad, tel, dt_str, paket_tipi, toplam_hak, kalan_hak, 
     if cell:
         wks.update_cell(cell.row, 2, ad)
         wks.update_cell(cell.row, 3, tel)
-        wks.update_cell(cell.row, 5, dt_str)
+        wks.update_cell(cell.row, 5, dt_str) 
         wks.update_cell(cell.row, 8, toplam_hak)
         wks.update_cell(cell.row, 9, kalan_hak)
         wks.update_cell(cell.row, 13, paket_tipi)
         wks.update_cell(cell.row, 14, veli_adi)
-        wks.update_cell(cell.row, 16, kategori)
-
+        wks.update_cell(cell.row, 16, kategori) 
 
 def uye_sil_gs(uye_id):
     sh = get_data()
@@ -182,7 +185,6 @@ def uye_sil_gs(uye_id):
     cell = wks.find(str(uye_id))
     if cell:
         wks.delete_rows(cell.row)
-
 
 def manuel_islem_gs(uye_id, miktar):
     sh = get_data()
@@ -193,7 +195,6 @@ def manuel_islem_gs(uye_id, miktar):
         mevcut = int(wks.cell(cell.row, kalan_hak_col).value)
         yeni = max(0, mevcut + miktar)
         wks.update_cell(cell.row, kalan_hak_col, yeni)
-
 
 def uyelik_yenile_gs(uye_id, eklenecek_hak, manuel_bitis_tarihi=None):
     sh = get_data()
@@ -214,7 +215,6 @@ def uyelik_yenile_gs(uye_id, eklenecek_hak, manuel_bitis_tarihi=None):
         wks.update_cell(cell.row, 8, eklenecek_hak)
         wks.update_cell(cell.row, 9, yeni_toplam_bakiye)
 
-
 def yas_hesapla(dt_str):
     if not dt_str: return 0
     try:
@@ -228,7 +228,6 @@ def yas_hesapla(dt_str):
     except:
         return 0
 
-
 # --- GİRİŞ MANTIĞI ---
 def giris_kontrol(kadi_girilen, sifre_girilen):
     yoneticiler = yoneticileri_getir()
@@ -236,7 +235,6 @@ def giris_kontrol(kadi_girilen, sifre_girilen):
         if str(y['kullanici_adi']) == kadi_girilen and str(y['sifre']) == sifre_girilen:
             return True
     return False
-
 
 query_params = st.query_params
 if "durum" in query_params and query_params["durum"] == "giris_ok":
@@ -276,13 +274,13 @@ if not st.session_state.giris_yapildi:
                     st.error("Hatalı bilgiler! (Lütfen Google Sheet 'yoneticiler' sayfasını kontrol edin)")
     st.stop()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (GÜNCELLENDİ: Tatiller Sekmesi Eklendi) ---
 with st.sidebar:
     st.write(f"👤 Yönetici: **{st.session_state.aktif_kullanici}**")
     st.info("🟢 Bağlantı: Google Sheets (Online)")
 
     with st.expander("⚙️ Yönetici Ayarları"):
-        tab_admin1, tab_admin2 = st.tabs(["🔑 Şifre", "➕ Yeni"])
+        tab_admin1, tab_admin2, tab_admin3 = st.tabs(["🔑 Şifre", "➕ Yeni", "🏖️ Tatiller"])
 
         with tab_admin1:
             st.caption("Mevcut kullanıcının şifresini değiştir")
@@ -310,6 +308,39 @@ with st.sidebar:
                         time.sleep(1)
                     else:
                         st.error("Bilgileri eksiksiz girin")
+        
+        with tab_admin3:
+            st.caption("Ders düşülmeyecek günleri ekleyin.")
+            try:
+                sh_t = get_data()
+                wks_t = sh_t.worksheet("tatiller")
+                mevcut_tatiller = [str(r['tarih']) for r in wks_t.get_all_records() if r.get('tarih')]
+            except:
+                mevcut_tatiller = []
+            
+            if mevcut_tatiller:
+                st.write("**Mevcut Tatiller:**")
+                for t in mevcut_tatiller:
+                    st.markdown(f"- `{t}`")
+            else:
+                st.info("Kayıtlı tatil yok.")
+
+            yeni_tatil = st.date_input("Tatil Günü Seç", datetime.now(), format="DD/MM/YYYY")
+            if st.button("Tatil Ekle", use_container_width=True):
+                t_str = str(yeni_tatil)
+                if t_str not in mevcut_tatiller:
+                    try:
+                        wks_t = sh_t.worksheet("tatiller")
+                    except:
+                        wks_t = sh_t.add_worksheet(title="tatiller", rows=100, cols=1)
+                        wks_t.append_row(["tarih"])
+                    wks_t.append_row([t_str])
+                    st.success("Eklendi!")
+                    time.sleep(1)
+                    st.cache_resource.clear()
+                    st.rerun()
+                else:
+                    st.warning("Bu tarih zaten listede var.")
 
     with st.expander("🛠️ Veri İşlemleri"):
         st.write("Google Sheet'te elle değişiklik yaparsanız buraya basıp güncelleyin.")
@@ -346,26 +377,24 @@ except:
 
 bugun = pd.to_datetime(datetime.now().date())
 
-
 def kategori_belirle(row):
     kat = str(row.get('kategori', '')).strip()
     if kat in ['Çocuk', 'Yetişkin']:
         return kat
-
+    
     if str(row.get('veli_adi', '')).strip() not in ['', 'nan', 'None']:
         return 'Çocuk'
     return 'Yetişkin'
-
 
 # --- GLOBAL VERİ İŞLEME ---
 if not df.empty:
     df['bitis_tarihi'] = pd.to_datetime(df['bitis_tarihi'], errors='coerce')
     df['baslangic_tarihi'] = pd.to_datetime(df['baslangic_tarihi'], errors='coerce')
     df['yas'] = df['dogum_tarihi'].apply(yas_hesapla)
-
+    
     df['kategori_hesaplanan'] = df.apply(kategori_belirle, axis=1)
     df['yas_grubu'] = df['kategori_hesaplanan'].apply(lambda x: 'Çocuk (Junior)' if x == 'Çocuk' else 'Yetişkin')
-
+    
     df['aktif_mi'] = (df['bitis_tarihi'] >= bugun) & (df['kalan_hak'] > 0)
 
     tum_bitenler = df[~df['aktif_mi']]
@@ -446,7 +475,7 @@ with tabs[0]:
         else:
             st.success("Temiz")
 
-# --- TAB 2: YENİ ÜYE (GÜNCELLENDİ: Veli Adı Her Zaman Görünür) ---
+# --- TAB 2: YENİ ÜYE ---
 with tabs[1]:
     st.header("📝 Yeni Üye Kaydı")
 
@@ -473,7 +502,6 @@ with tabs[1]:
         yeni_cins = c4.selectbox("Cinsiyet", ["Erkek", "Kadın"])
         yeni_kategori = c_kat.selectbox("Kategori (Yaş Grubu)", ["Yetişkin", "Çocuk"])
 
-        # YENİ EKLENEN KISIM: Veli adı kutusu kategoriden bağımsız her zaman görünür.
         st.info("ℹ️ Lütfen çocuk üyeler için Veli Adını girmeyi unutmayınız. Yetişkinler boş bırakabilir.")
         yeni_veli = st.text_input("👨‍👩‍👦 Veli Adı Soyadı")
 
@@ -490,8 +518,8 @@ with tabs[1]:
         yeni_odeme = c9.selectbox("Ödeme", ["Nakit", "IBAN", "Kredi Kartı"])
 
         yeni_gunler = st.multiselect("Günler",
-                                     ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
-                                     placeholder="Gün seçiniz!")
+                                      ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
+                                      placeholder="Gün seçiniz!")
 
         submitted = st.form_submit_button("✅ Üyeyi Kaydet", type="primary")
 
@@ -537,7 +565,7 @@ with tabs[2]:
         for i, row in view_df.iterrows():
             with st.container(border=True):
                 c1, c2, c3, c4 = st.columns([3, 3, 2, 2])
-
+                
                 ikon = "🧒" if row['yas_grubu'] == 'Çocuk (Junior)' else ("👨" if row['cinsiyet'] == "Erkek" else "👩")
                 c1.markdown(f"### {ikon} {row['ad_soyad']}")
                 if row['yas_grubu'] == 'Çocuk (Junior)' and str(row.get('veli_adi', '')).strip():
@@ -574,10 +602,10 @@ with tabs[2]:
                     with tab_duzen:
                         with st.form(key=f"edit_form_{row['id']}"):
                             d_ad = st.text_input("Ad Soyad", value=row['ad_soyad'])
-
+                            
                             c_edit1, c_edit2 = st.columns(2)
                             d_tel = c_edit1.text_input("Telefon", value=row['telefon'])
-
+                            
                             try:
                                 mevcut_dt = datetime.strptime(str(row['dogum_tarihi']), "%Y-%m-%d").date()
                             except:
@@ -585,25 +613,22 @@ with tabs[2]:
                                     mevcut_dt = datetime.strptime(str(row['dogum_tarihi']), "%d.%m.%Y").date()
                                 except:
                                     mevcut_dt = datetime(2000, 1, 1).date()
-
+                                    
                             d_dt = c_edit2.date_input("Doğum Tarihi", value=mevcut_dt, format="DD/MM/YYYY")
 
                             c_kat_edit, c_veli_edit = st.columns(2)
                             mevcut_kat = "Çocuk" if row['yas_grubu'] == 'Çocuk (Junior)' else "Yetişkin"
-                            d_kategori = c_kat_edit.selectbox("Kategori", ["Yetişkin", "Çocuk"],
-                                                              index=1 if mevcut_kat == "Çocuk" else 0)
-                            d_veli = c_veli_edit.text_input("Veli Adı Soyadı",
-                                                            value=str(row.get('veli_adi', '')).replace('nan', ''))
+                            d_kategori = c_kat_edit.selectbox("Kategori", ["Yetişkin", "Çocuk"], index=1 if mevcut_kat == "Çocuk" else 0)
+                            d_veli = c_veli_edit.text_input("Veli Adı Soyadı", value=str(row.get('veli_adi', '')).replace('nan',''))
 
                             d_tip = st.selectbox("Paket", ["Grup Dersi", "Özel Ders"],
                                                  index=0 if row['ders_tipi'] == "Grup Dersi" else 1)
                             c_d1, c_d2 = st.columns(2)
                             d_top = c_d1.number_input("Toplam Hak", value=int(row['toplam_hak']))
                             d_kal = c_d2.number_input("Kalan Hak", value=int(row['kalan_hak']))
-
+                            
                             if st.form_submit_button("💾 Değişiklikleri Kaydet"):
-                                uye_guncelle_gs(row['id'], d_ad, d_tel, str(d_dt), d_tip, d_top, d_kal, d_veli,
-                                                d_kategori)
+                                uye_guncelle_gs(row['id'], d_ad, d_tel, str(d_dt), d_tip, d_top, d_kal, d_veli, d_kategori)
                                 st.success("Güncellendi!");
                                 time.sleep(1);
                                 st.cache_resource.clear();
@@ -620,8 +645,7 @@ with tabs[2]:
                 with st.expander("♻️ Paket / Süre Uzatma"):
                     rc1, rc2 = st.columns(2)
                     y_adet = rc1.number_input("Ders Sayısı", value=int(row['toplam_hak']), key=f"list_n_{row['id']}")
-                    y_tarih = rc1.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY",
-                                             key=f"list_d_{row['id']}")
+                    y_tarih = rc1.date_input("Yeni Bitiş", value=bugun + timedelta(days=30), format="DD/MM/YYYY", key=f"list_d_{row['id']}")
                     if rc2.button("Yenile / Uzat", key=f"list_b_{row['id']}"):
                         uyelik_yenile_gs(row['id'], y_adet, y_tarih)
                         st.success("İşlem Tamam!");
@@ -651,8 +675,7 @@ with tabs[3]:
         if rapor_turu == "Tüm Üyeler (Detaylı)":
             gosterilecek_tablo = temp_df[['ad_soyad', 'telefon', 'cinsiyet', 'yas', 'ders_tipi', 'kalan_hak', 'durum']]
         elif rapor_turu == "Çocuklar ve Velileri":
-            gosterilecek_tablo = temp_df[temp_df['yas_grubu'] == 'Çocuk (Junior)'][
-                ['ad_soyad', 'veli_adi', 'telefon', 'kalan_hak']]
+            gosterilecek_tablo = temp_df[temp_df['yas_grubu'] == 'Çocuk (Junior)'][['ad_soyad', 'veli_adi', 'telefon', 'kalan_hak']]
         elif rapor_turu == "Grup Dersi Alanlar":
             gosterilecek_tablo = temp_df[temp_df['ders_tipi'] == "Grup Dersi"][
                 ['ad_soyad', 'telefon', 'gunler', 'kalan_hak']]
