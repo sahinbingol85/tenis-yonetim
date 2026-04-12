@@ -18,6 +18,9 @@ GUNLER_MAP = {
     3: 'Perşembe', 4: 'Cuma', 5: 'Cumartesi', 6: 'Pazar'
 }
 
+# YENİ: TAM SAATLER LİSTESİ (07:00 - 23:00 arası)
+TAM_SAATLER = [f"{str(i).zfill(2)}:00" for i in range(7, 24)]
+
 # --- GOOGLE SHEETS BAĞLANTISI ---
 @st.cache_resource
 def init_connection():
@@ -145,7 +148,6 @@ def sistem_kontrol_sessiz_gs():
             yeni_hak = max(0, kalan - dusulecek)
             wks_uye.update_cell(row_num, 9, yeni_hak)
 
-# GÜNCELLENDİ: Saat parametresi eklendi (17. Sütun)
 def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, bitis, ucret, yontem, gunler_list, ders_tipi, hak_sayisi, veli_adi, kategori, saat):
     sh = get_data()
     wks = sh.worksheet("uyelikler")
@@ -164,7 +166,6 @@ def yeni_uye_ekle_gs(ad, tel, cins, dt, bas, bitis, ucret, yontem, gunler_list, 
     except:
         pass
 
-# GÜNCELLENDİ: Saat parametresi eklendi
 def uye_guncelle_gs(uye_id, ad, tel, dt_str, paket_tipi, toplam_hak, kalan_hak, veli_adi, kategori, saat_str):
     sh = get_data()
     wks = sh.worksheet("uyelikler")
@@ -178,7 +179,7 @@ def uye_guncelle_gs(uye_id, ad, tel, dt_str, paket_tipi, toplam_hak, kalan_hak, 
         wks.update_cell(cell.row, 13, paket_tipi)
         wks.update_cell(cell.row, 14, veli_adi)
         wks.update_cell(cell.row, 16, kategori) 
-        wks.update_cell(cell.row, 17, saat_str) # 17. Sütun Saat
+        wks.update_cell(cell.row, 17, saat_str) 
 
 def uye_sil_gs(uye_id):
     sh = get_data()
@@ -484,7 +485,7 @@ with tabs[0]:
         else:
             st.success("Temiz")
 
-# --- TAB 2: YENİ ÜYE (GÜNCELLENDİ: SAAT EKLENDİ) ---
+# --- TAB 2: YENİ ÜYE (GÜNCELLENDİ: TAM SAAT DROPDOWN) ---
 with tabs[1]:
     st.header("📝 Yeni Üye Kaydı")
 
@@ -526,13 +527,13 @@ with tabs[1]:
         yeni_bitis = c_bitis.date_input("Bitiş Tarihi", datetime.now() + timedelta(days=30), format="DD/MM/YYYY")
         yeni_odeme = c9.selectbox("Ödeme", ["Nakit", "IBAN", "Kredi Kartı"])
 
-        # YENİ: Günler ve Saat Yan Yana
+        # YENİ: Saat seçimi artık serbest yazı değil, sadece TAM SAATLER listesinden seçiliyor
         c10, c11 = st.columns([2, 1])
         yeni_gunler = c10.multiselect("Günler",
                                       ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"],
                                       placeholder="Gün seçiniz!")
         
-        yeni_saat = c11.time_input("Ders Saati", value=datetime.strptime("18:00", "%H:%M").time())
+        yeni_saat = c11.selectbox("Ders Saati", TAM_SAATLER, index=TAM_SAATLER.index("18:00"))
 
         submitted = st.form_submit_button("✅ Üyeyi Kaydet", type="primary")
 
@@ -547,13 +548,14 @@ with tabs[1]:
                 hata_var = True
 
             if not hata_var:
+                # Saat parametresi direkt string olarak gönderiliyor
                 yeni_uye_ekle_gs(yeni_ad, yeni_tel, yeni_cins, yeni_dt, yeni_bas, yeni_bitis, yeni_ucret,
-                                 yeni_odeme, yeni_gunler, yeni_tip, yeni_hak, yeni_veli, yeni_kategori, yeni_saat.strftime("%H:%M"))
+                                 yeni_odeme, yeni_gunler, yeni_tip, yeni_hak, yeni_veli, yeni_kategori, yeni_saat)
                 st.session_state.form_basari = True
                 st.cache_resource.clear()
                 st.rerun()
 
-# --- TAB 3: LİSTE (GÜNCELLENDİ: Saat Düzenleme Eklendi) ---
+# --- TAB 3: LİSTE ---
 with tabs[2]:
     if not df.empty:
         fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
@@ -587,7 +589,6 @@ with tabs[2]:
                 tarih_str = row['baslangic_tarihi'].strftime('%d.%m.%Y') if pd.notnull(row['baslangic_tarihi']) else "-"
                 bitis_str = row['bitis_tarihi'].strftime('%d.%m.%Y') if pd.notnull(row['bitis_tarihi']) else "-"
 
-                # SAAT GÖSTERİMİ
                 saat_gosterim = str(row.get('saat', ''))
                 saat_text = f" | ⏰ {saat_gosterim}" if saat_gosterim and saat_gosterim not in ['nan', 'None'] else ""
                 
@@ -641,19 +642,26 @@ with tabs[2]:
                             d_tip = st.selectbox("Paket", ["Grup Dersi", "Özel Ders"],
                                                  index=0 if row['ders_tipi'] == "Grup Dersi" else 1)
                             
-                            # YENİ: Saat Düzenleme
+                            # YENİ: Saat Düzenleme için Tam Saat Dropdown'u eklendi
                             c_d1, c_d2, c_d3 = st.columns(3)
                             d_top = c_d1.number_input("Toplam Hak", value=int(row['toplam_hak']))
                             d_kal = c_d2.number_input("Kalan Hak", value=int(row['kalan_hak']))
                             
                             m_saat_str = str(row.get('saat', '18:00')).strip()
-                            if m_saat_str in ['nan', 'None', '']: m_saat_str = '18:00'
-                            try: m_saat = datetime.strptime(m_saat_str, "%H:%M").time()
-                            except: m_saat = datetime.strptime("18:00", "%H:%M").time()
-                            d_saat = c_d3.time_input("Ders Saati", value=m_saat)
+                            
+                            # Hatalı/eski veri varsa onu en yakın saate yuvarlama veya default 18:00 yapma kilidi
+                            if m_saat_str not in TAM_SAATLER:
+                                try:
+                                    # "18:30" gibi bir şey geldiyse sadece "18" kısmını alıp ":00" ekler
+                                    m_saat_str = f"{m_saat_str.split(':')[0].zfill(2)}:00"
+                                    if m_saat_str not in TAM_SAATLER: m_saat_str = "18:00"
+                                except:
+                                    m_saat_str = "18:00"
+                                    
+                            d_saat = c_d3.selectbox("Ders Saati", TAM_SAATLER, index=TAM_SAATLER.index(m_saat_str))
                             
                             if st.form_submit_button("💾 Değişiklikleri Kaydet"):
-                                uye_guncelle_gs(row['id'], d_ad, d_tel, str(d_dt), d_tip, d_top, d_kal, d_veli, d_kategori, d_saat.strftime("%H:%M"))
+                                uye_guncelle_gs(row['id'], d_ad, d_tel, str(d_dt), d_tip, d_top, d_kal, d_veli, d_kategori, d_saat)
                                 st.success("Güncellendi!");
                                 time.sleep(1);
                                 st.cache_resource.clear();
